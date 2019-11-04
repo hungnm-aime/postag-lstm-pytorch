@@ -13,7 +13,9 @@ def prepare_sequence(seq, to_ix):
 
 training_data = [
     ("The dog ate the apple".split(), ["DET", "NN", "V", "DET", "NN"]),
-    ("Everybody read that book".split(), ["NN", "V", "DET", "NN"])
+    ("A cat eats the orange".split(), ["DET", "NN", "V", "DET", "NN"]),
+    ("Everybody read that book".split(), ["NN", "V", "DET", "NN"]),
+    ("Someone play the guitar".split(), ["NN", "V", "DET", "NN"])
 ]
 
 word2index = {}

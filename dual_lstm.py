@@ -3,9 +3,12 @@ Mô hình này sử dụng 2 mạng LSTM
 1 mạng sử dụng ở level word embedding, mạng còn lại ở level char embedding
 Dataset sử dụng nltk
 """
-
+import numpy as np
 import nltk
 import pickle as pkl
+import warnings
+
+warnings.filterwarnings("ignore")
 
 """
 '''Download dataset'''
@@ -110,7 +113,7 @@ class DualLSTMTagger(nn.Module):
 
         self.hidden2tag = nn.Linear(in_features=word_hidden_dim, out_features=tag_vocab_size)
 
-    def foward(self, sent, words):
+    def forward(self, sent, words):
         embeds = self.word_embedding(sent)
 
         char_hidden_final = []
@@ -122,7 +125,7 @@ class DualLSTMTagger(nn.Module):
             char_hidden_final.append(char_hidden_state_of_word)
         char_hidden_final = torch.stack(tuple(char_hidden_final))
         combined = torch.cat((embeds, char_hidden_final), 1)
-        lstm_out, (hn, cn) = self.lstm(combined.view(len(sent), 1, -1))
+        lstm_out, _ = self.lstm(combined.view(len(sent), 1, -1))
         tag_space = self.hidden2tag(lstm_out.view(len(sent), -1))
         tag_scores = F.log_softmax(tag_space, dim=1)
         return tag_scores
@@ -134,7 +137,7 @@ if torch.cuda.is_available():
     device = "cuda"
 else:
     device = "cpu"
-
+# negative log likehood
 loss_function = nn.NLLLoss()
 
 optimizer = optim.Adam(model.parameters(), lr=0.01)
@@ -147,24 +150,71 @@ def sequence_to_idx(sequence, ix):
 # The test sentence
 seq = "everybody eat the food . I kept looking out the window , trying to find the one I was waiting for .".split()
 print("Running a check on the model before training.\nSentences:\n{}".format(" ".join(seq)))
-words = [torch.tensor(sequence_to_idx(s[0], char2idx), dtype=torch.long).to(device) for s in seq]
-for s in seq:
-    print(s[0])
-print("words: ", words)
-print(len(words))
-sentence = torch.tensor(sequence_to_idx(seq, word2idx), dtype=torch.long).to(device)
-print("sent: ", sentence)
 
-# with torch.no_grad():
-#     words = [torch.tensor(sequence_to_idx(s[0], char2idx), dtype=torch.long).to(device) for s in seq]
-#     sentence = torch.tensor(sequence_to_idx(seq, word2idx), dtype=torch.long).to(device)
-#
-#     tag_scores = model(sentence, words)
-#     _, indices = torch.max(tag_scores, 1)
-#     ret = []
-#     for i in range(len(indices)):
-#         for key, value in tag2idx.items():
-#             if indices[i] == value:
-#                 ret.append((seq[i], key))
-#     print(ret)
+with torch.no_grad():
+    # words = [torch.tensor(sequence_to_idx(s[0], char2idx), dtype=torch.long).to(device) for s in seq]
+    sentence = torch.tensor(sequence_to_idx(seq, word2idx), dtype=torch.long).to(device)
+    print("sent: ", sentence)
+    words = [torch.tensor([sequence_to_idx(c, char2idx) for c in s], dtype=torch.long).to(device) for s in seq]
+    print("word: ", words)
+    print("type of word: ", type(words))
+
+    tag_scores = model(sentence, words)
+    print("tag_scores: ", tag_scores)
+    print("size of tag_scores: ", tag_scores.size())
+    _, indices = torch.max(tag_scores, 1)
+    print("_: ", _)
+    print("indices: ", indices)
+    ret = []
+    for i in range(len(indices)):
+        for key, value in tag2idx.items():
+            if indices[i] == value:
+                ret.append((seq[i], key))
+    print(ret)
 # Training start
+
+accuracy_list = []
+loss_list = []
+interval = round(len(train) / 100)
+epochs = EPOCHS
+e_interval = round(epochs / 10)
+
+for epoch in range(epochs):
+    acc = 0
+    loss = 0
+    i = 0
+    for sentence_tag in train:
+        i += 1
+        print("sentence_tag: ")
+        print(sentence_tag)
+        words = [torch.tensor(sequence_to_idx(s[0], char2idx), dtype=torch.long).to(device) for s in sentence_tag]
+        print(words)
+        sentence = [s[0] for s in sentence_tag]
+        sentence = torch.tensor(sequence_to_idx(sentence, word2idx), dtype=torch.long).to(device)
+        targets = [s[1] for s in sentence_tag]
+        targets = torch.tensor(sequence_to_idx(targets, tag2idx), dtype=torch.long).to(device)
+        model.zero_grad()
+        tag_scores = model(sentence, words)
+        print("tag_scores: ", tag_scores)
+        l_f = loss_function(tag_scores, targets)
+        print("loss: ", loss)
+        loss.backward()
+        optimizer.step()
+        loss += l_f.item()
+        _, indices = torch.max(tag_scores, 1)
+        print("indices: ", indices)
+        print("targets: ", targets)
+        print(len(indices))
+        # get number index in sentence is true / len(indices)
+        acc += torch.mean(torch.tensor(targets == indices, dtype=torch.float))
+        print("acc: ", acc)
+
+        if i % interval == 0:
+            print("Epoch {} Running;\t{}% Complete".format(epoch + 1, i / interval), end="\r", flush=True)
+    loss = loss / len(train)
+    acc = acc / len(train)
+    loss_list.append(float(loss))
+    accuracy_list.append(float(acc))
+    if (epoch + 1) % e_interval == 0:
+        print("Epoch {} Completed,\tLoss {}\tAccuracy: {}".format(epoch + 1, np.mean(loss_list[-e_interval:]),
+                                                                  np.mean(accuracy_list[-e_interval:])))
